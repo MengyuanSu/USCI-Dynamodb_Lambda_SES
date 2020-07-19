@@ -6,7 +6,6 @@ import hashlib
 import boto3
 from boto3.dynamodb.conditions import Key,Attr
 from base64 import b64encode, b64decode
-import boto3
 import logging
 
 def lambda_handler(event, context):
@@ -91,7 +90,11 @@ Thanks,
 The USCI team
         '''
         
-        restockContent = '''Hey ''' + userName + '''! ''' + productName + '''in your subscription list got restocked at ''' + scrapeTime + '''. Visit ''' + productLink + ''' to review your subscription and order it quickly! 
+        restockContent = '''Hey ''' + userName + '''! 
+        
+        ''' + productName + '''in your subscription list got restocked at ''' + scrapeTime + '''. 
+        
+        Visit ''' + productLink + ''' to review your subscription and order it quickly! 
     
         Thanks,
         The USCI team
@@ -107,7 +110,7 @@ The USCI team
             return resp
             
         send_email = ses_client.send_email(
-            Source="",
+            Source="variladim@gmail.com",
             Destination={
                 'ToAddresses': [
                     receiver,
