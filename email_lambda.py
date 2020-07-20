@@ -7,6 +7,7 @@ import boto3
 from boto3.dynamodb.conditions import Key,Attr
 from base64 import b64encode, b64decode
 import logging
+from bs4 import BeautifulSoup
 
 def lambda_handler(event, context):
     """ Lambda handler for handling INSERT and MODIFY for /msg API gateway endpoint. """
@@ -27,7 +28,6 @@ def lambda_handler(event, context):
     if not 'Records' in event:
         resp = {'status': False, "error_message": 'No Records found in Event'}
         return resp
-
     logger.debug(f"Event:{event}")
     for r in event.get('Records'):
         if r.get('eventName') == "MODIFY":
@@ -40,31 +40,30 @@ def lambda_handler(event, context):
             d['prev_price'] = r['dynamodb']['OldImage']['cur_price']['N']
             d['restock'] = r['dynamodb']['NewImage']['restock_indicator']['N']
             d['url'] = r['dynamodb']['NewImage']['href']['S']
+            d['img'] = r['dynamodb']['NewImage']['imagehref']['S']
             msg = table.query(
                 IndexName = 'product-email-index',
                 KeyConditionExpression=Key('product').eq(d['UID'])
                 )
             d['subscription'] = msg['Items']
             if len(d['subscription']) == 0:
-                pass
+                return resp
             if 'Message' in r['dynamodb']['NewImage']:
                 d['Message'] = r['dynamodb']['NewImage']['Message']['S']
             resp['Items'].append(d)
-
+            
     if resp.get('Items'):
         resp['status'] = True
         resp['TotalItems'] = {'Received': len(event.get('Records')), 'Processed': len(resp.get('Items'))}
-    
+    logger.info(f"resp:{resp}")
     productInfo = resp.get('Items')
-    # #userName = str(info[0]['user_name'])
     productName = str(productInfo[0]['name'])
     curPrice = float(productInfo[0]['cur_price'])
     prevPrice = productInfo[0]['prev_price']
     isRestock = productInfo[0]['restock']
     scrapeTime = str(productInfo[0]['time'])
-    #receiver = str(info[0]['receiver'])
     productLink = str(productInfo[0]['url'])
-    #targetPrice = str(info[0]['target'])
+    imageLink = str(productInfo[0]['img'])
     userName = []
     receiver = []
     targetPrice = []
@@ -78,26 +77,26 @@ def lambda_handler(event, context):
         # resp['Items']{['UID']['price_change']['restock_indicator']['scrapetime2']}
         subject = '''USCI Subscription state change'''
         
-        priceContent = '''Hey ''' + userName + '''! 
+        priceContent = '''Hey ''' + userName + '''!<br>
         
-        ''' + productName + '''in your subscription list got a discount and met your goal at ''' + scrapeTime + '''. 
+        ''' + productName + ''' in your subscription list got a discount and met your goal at ''' + scrapeTime + '''. <br>
         
-        The price was ''' + prevPrice + ''' and now it is only ''' + str(curPrice) + '''. 
+        The price was ''' + prevPrice + ''' and now it is only ''' + str(curPrice) + '''. <br>
         
-        Visit ''' + productLink + ''' to review your subscription and order it quickly! 
+        Click the button to review your subscription and order it quickly! <br>
     
 Thanks,
 The USCI team
         '''
         
-        restockContent = '''Hey ''' + userName + '''! 
+        restockContent = '''Hey ''' + userName + '''!<br> 
         
-        ''' + productName + '''in your subscription list got restocked at ''' + scrapeTime + '''. 
+        ''' + productName + '''in your subscription list got restocked at ''' + scrapeTime + '''.<br> 
         
-        Visit ''' + productLink + ''' to review your subscription and order it quickly! 
+        Click the button to review your subscription and order it quickly!<br> 
     
-        Thanks,
-        The USCI team
+Thanks,
+The USCI team
         '''
         
         if curPrice <= targetPrice:
@@ -109,6 +108,21 @@ The USCI team
         else:
             return resp
             
+        with open("subscription.html", "r", encoding="utf-8") as file:
+            fcontent = file.read()
+
+        sp = BeautifulSoup(fcontent, 'html.parser')
+
+        text0 = sp.prettify()
+        
+        replaceContent = '<td class="mcnTextContent" style="padding-top:0; padding-right:18px; padding-bottom:9px; padding-left:18px;" valign="top">\n                    ' + content + '\n'
+        
+        text1 = text0.replace('<td class="mcnTextContent" style="padding-top:0; padding-right:18px; padding-bottom:9px; padding-left:18px;" valign="top">\n                    content\n',replaceContent)
+        
+        text2 = text1.replace('https://mcusercontent.com/b5eaa72530d93a77b6c3bac61/images/fee19beb-96ac-4b5c-9152-c487a483740a.jpeg',imageLink)
+        
+        text3 = text2.replace('http://link to be replaced',productLink)
+
         send_email = ses_client.send_email(
             Source="variladim@gmail.com",
             Destination={
@@ -121,8 +135,8 @@ The USCI team
                     'Data': subject,
                     },
                 'Body': {
-                    'Text': {
-                        'Data': content,
+                    'Html': {
+                        'Data': text3,
                         }
                     }
                 }
